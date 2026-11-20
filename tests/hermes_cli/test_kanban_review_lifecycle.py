@@ -934,6 +934,7 @@ def test_changes_requested_without_implementer_records_triage_event_and_run(
 ) -> None:
     with kbc.connect() as conn:
         tid, review = _prepare_null_implementer_review(conn, "null implementer")
+        kb.add_comment(conn, tid, "worker", "prior implementation note")
         ok, detail = kb.request_changes(
             conn, tid, reason="needs fixes", expected_run_id=review.current_run_id,
         )
@@ -950,6 +951,25 @@ def test_changes_requested_without_implementer_records_triage_event_and_run(
         assert (run["status"], run["outcome"], run["summary"]) == (
             "triage", "changes_requested", "needs fixes",
         )
+        comments = kb.list_comments(conn, tid)
+        # Prior history survives the triage landing.
+        assert [(c.author, c.body) for c in comments if c.author == "worker"] == [
+            ("worker", "prior implementation note"),
+        ]
+        repair = _routing_repair_comments(conn, tid)
+        assert len(repair) == 1
+        body = repair[0].body
+        assert "no implementer provenance" in body
+        assert "triage" in body
+        assert "by reviewer" in body
+        assert "Reviewer reason: needs fixes" in body
+
+
+def _routing_repair_comments(conn, tid: str) -> list:
+    return [
+        c for c in kb.list_comments(conn, tid)
+        if c.author == "kanban" and c.body.startswith("Routing repair needed:")
+    ]
 
 
 def _prepare_null_implementer_review(conn, title: str):
@@ -986,6 +1006,7 @@ def test_blank_implementer_routes_to_triage(kanban_home: Path) -> None:
             )
             assert (ok, detail) == (True, None)
             assert kb.get_task(conn, tid).status == "triage"
+            assert len(_routing_repair_comments(conn, tid)) == 1
 
 
 def test_request_changes_valid_implementer_path_is_unchanged(kanban_home: Path) -> None:
@@ -1007,6 +1028,7 @@ def test_request_changes_valid_implementer_path_is_unchanged(kanban_home: Path) 
         event = _events(conn, tid, kind="changes_requested")[-1][1]
         assert event["implementer"] == "worker"
         assert "routed_to_triage" not in event
+        assert _routing_repair_comments(conn, tid) == []
 
 
 def test_request_changes_error_paths_are_unchanged(kanban_home: Path) -> None:

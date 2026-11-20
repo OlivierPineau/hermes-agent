@@ -3439,6 +3439,17 @@ def _route_changes_to_triage(
         },
         run_id=ended_run_id,
     )
+    # Audit comment in the caller's write_txn so it lands atomically with the
+    # triage transition; the card has no assignee and needs human re-routing.
+    by_reviewer = f" by {reviewer}" if reviewer else ""
+    _insert_comment(
+        conn, task_id, "kanban",
+        f"Routing repair needed: review changes were requested{by_reviewer}, but the review "
+        "handoff carried no implementer provenance, so no implementer could be reassigned. "
+        "The card has been routed to triage with no assignee; a router / chief of staff must "
+        f"re-triage and assign it. Reviewer reason: {reason}",
+        int(time.time()),
+    )
     return True, None
 
 
